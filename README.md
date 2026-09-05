@@ -1,6 +1,6 @@
 # java-env-config
 
-[![CI](https://github.com/kasapdev/java-env-config/actions/workflows/ci.yml/badge.svg)](https://github.com/kasapdev/java-env-config/actions/workflows/ci.yml)
+[![CI](https://github.com/kasapdev/java-env-config/actions/workflows/ci.yml/badge.svg)](https://github.com/kasapdev/java-env-config/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Java](https://img.shields.io/badge/Java-17-ED8B00?logo=openjdk&logoColor=white)
 
 A small, typed configuration loader for `.env`-style files in Java. Hand-written parser (no external dependency), typed accessors (`String`/`int`/`boolean`) with clear, key-naming errors, and an aggregated `validate()` for required keys. Zero dependencies, pure Java 17, no build tool required.
 
