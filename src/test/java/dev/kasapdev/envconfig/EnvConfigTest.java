@@ -36,6 +36,12 @@ public final class EnvConfigTest {
         }
 
         testMalformedLineThrows();
+        testEmptyKeyThrows();
+        testMissingFileThrowsConfigException();
+        testUnknownEscapeSequenceRetainsBackslash();
+        testTabEscapeSequence();
+        testValueContainingEqualsSignIsPreservedInFull();
+        testDuplicateKeysLastWins();
 
         TestKit.finish();
     }
@@ -186,6 +192,79 @@ public final class EnvConfigTest {
             }
         } finally {
             Files.deleteIfExists(badFile);
+        }
+    }
+
+    private static void testEmptyKeyThrows() throws IOException {
+        Path badFile = Files.createTempFile("envconfig-emptykey", ".env");
+        try {
+            Files.write(badFile, List.of("=no-key-here"), StandardCharsets.UTF_8);
+            try {
+                EnvConfig.load(badFile);
+                TestKit.check("loading a line with an empty key throws ConfigException", false);
+            } catch (ConfigException e) {
+                TestKit.check("loading a line with an empty key throws ConfigException", true);
+            }
+        } finally {
+            Files.deleteIfExists(badFile);
+        }
+    }
+
+    private static void testMissingFileThrowsConfigException() {
+        Path missing = Path.of(System.getProperty("java.io.tmpdir"), "envconfig-does-not-exist-" + System.nanoTime() + ".env");
+        try {
+            EnvConfig.load(missing);
+            TestKit.check("loading a nonexistent file throws ConfigException", false);
+        } catch (ConfigException e) {
+            TestKit.check("loading a nonexistent file throws ConfigException (not a raw IOException)", true);
+        }
+    }
+
+    private static void testUnknownEscapeSequenceRetainsBackslash() throws IOException {
+        Path file = Files.createTempFile("envconfig-escape", ".env");
+        try {
+            Files.write(file, List.of("KEY=\"a\\xb\""), StandardCharsets.UTF_8);
+            EnvConfig cfg = EnvConfig.load(file);
+            TestKit.check(
+                    "an unrecognized escape sequence in a double-quoted value retains the literal backslash",
+                    "a\\xb".equals(cfg.getString("KEY")));
+        } finally {
+            Files.deleteIfExists(file);
+        }
+    }
+
+    private static void testTabEscapeSequence() throws IOException {
+        Path file = Files.createTempFile("envconfig-tab", ".env");
+        try {
+            Files.write(file, List.of("KEY=\"a\\tb\""), StandardCharsets.UTF_8);
+            EnvConfig cfg = EnvConfig.load(file);
+            TestKit.check("the \\t escape sequence decodes to an actual tab character", "a\tb".equals(cfg.getString("KEY")));
+        } finally {
+            Files.deleteIfExists(file);
+        }
+    }
+
+    private static void testValueContainingEqualsSignIsPreservedInFull() throws IOException {
+        Path file = Files.createTempFile("envconfig-equals", ".env");
+        try {
+            Files.write(file, List.of("CONN=a=b=c"), StandardCharsets.UTF_8);
+            EnvConfig cfg = EnvConfig.load(file);
+            TestKit.check(
+                    "only the first '=' splits key from value; the rest is preserved in the value",
+                    "a=b=c".equals(cfg.getString("CONN")));
+        } finally {
+            Files.deleteIfExists(file);
+        }
+    }
+
+    private static void testDuplicateKeysLastWins() throws IOException {
+        Path file = Files.createTempFile("envconfig-dup", ".env");
+        try {
+            Files.write(file, List.of("DUP=first", "DUP=second"), StandardCharsets.UTF_8);
+            EnvConfig cfg = EnvConfig.load(file);
+            TestKit.check("duplicate keys resolve to the last occurrence's value", "second".equals(cfg.getString("DUP")));
+        } finally {
+            Files.deleteIfExists(file);
         }
     }
 }
