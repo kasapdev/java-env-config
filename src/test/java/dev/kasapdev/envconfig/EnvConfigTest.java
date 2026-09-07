@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public final class EnvConfigTest {
@@ -31,6 +32,8 @@ public final class EnvConfigTest {
             testMissingRequiredKeyThrowsNamingKey(config);
             testValidatePassesWhenAllPresent(config);
             testValidateAggregatesAllMissingKeys(config);
+            testSectionScopesToPrefixedKeys(config);
+            testSectionOfUnknownPrefixIsEmptyButValid(config);
         } finally {
             Files.deleteIfExists(envFile);
         }
@@ -60,7 +63,12 @@ public final class EnvConfigTest {
                 "QUOTED_SINGLE='raw \\n not-escaped literal'",
                 "NOT_A_NUMBER=abc",
                 "NOT_A_BOOL=maybe",
-                "TRIMMED_KEY   =    value with internal   spaces   "
+                "TRIMMED_KEY   =    value with internal   spaces   ",
+                "DATABASE_HOST=db.example.com",
+                "DATABASE_PORT=5432",
+                "DATABASE_NAME=orders",
+                "CACHE_TTL=60",
+                "CACHE_SIZE=1024"
         );
         Path path = Files.createTempFile("envconfig-test", ".env");
         Files.write(path, lines, StandardCharsets.UTF_8);
@@ -74,8 +82,8 @@ public final class EnvConfigTest {
     private static void testCommentsAndBlankLinesAreSkipped(EnvConfig config) {
         TestKit.check("comment lines do not become keys", !config.has("#"));
         TestKit.check("blank lines produce no keys", config.keys().stream().noneMatch(String::isBlank));
-        // 9 real key lines in the fixture file (comments and blank lines excluded).
-        TestKit.check("exactly the expected number of keys were parsed", config.keys().size() == 9);
+        // 14 real key lines in the fixture file (comments and blank lines excluded).
+        TestKit.check("exactly the expected number of keys were parsed", config.keys().size() == 14);
     }
 
     private static void testDoubleQuotedValueWithEscapes(EnvConfig config) {
@@ -178,6 +186,66 @@ public final class EnvConfigTest {
             TestKit.check("validate() error mentions second missing key", message.contains("MISSING_TWO"));
             TestKit.check("validate() error does not list a present key as missing", !message.contains("APP_NAME"));
         }
+    }
+
+    private static void testSectionScopesToPrefixedKeys(EnvConfig config) {
+        EnvConfigSection database = config.section("DATABASE");
+        EnvConfigSection cache = config.section("CACHE");
+
+        TestKit.check("section(prefix).getString resolves the prefixed key",
+                "db.example.com".equals(database.getString("HOST")));
+        TestKit.check("section(prefix).getInt resolves and coerces the prefixed key",
+                database.getInt("PORT") == 5432);
+        TestKit.check("section(prefix).getString resolves a second key in the same section",
+                "orders".equals(database.getString("NAME")));
+
+        TestKit.check("section(prefix).getInt resolves keys from a different section",
+                cache.getInt("TTL") == 60);
+        TestKit.check("section(prefix).getInt resolves a second key from a different section",
+                cache.getInt("SIZE") == 1024);
+
+        TestKit.check("a section does not expose keys belonging to a different section",
+                !database.has("TTL") && !database.has("SIZE"));
+        TestKit.check("a section does not expose top-level, non-prefixed keys",
+                !database.has("APP_NAME") && !cache.has("APP_NAME"));
+
+        TestKit.check("section(prefix).keys() contains exactly that section's stripped keys",
+                database.keys().equals(Set.of("HOST", "PORT", "NAME")));
+        TestKit.check("a section's keys() does not include another section's keys",
+                !database.keys().contains("TTL") && !cache.keys().contains("HOST"));
+
+        Map<String, String> databaseMap = database.asMap();
+        TestKit.check("section(prefix).asMap() strips the prefix from every key",
+                "db.example.com".equals(databaseMap.get("HOST"))
+                        && "5432".equals(databaseMap.get("PORT"))
+                        && "orders".equals(databaseMap.get("NAME")));
+        TestKit.check("section(prefix).asMap() has exactly the section's key count",
+                databaseMap.size() == 3);
+    }
+
+    private static void testSectionOfUnknownPrefixIsEmptyButValid(EnvConfig config) {
+        EnvConfigSection missing;
+        boolean threwOnSectionCreation = false;
+        try {
+            missing = config.section("NONEXISTENT");
+        } catch (RuntimeException e) {
+            threwOnSectionCreation = true;
+            missing = null;
+        }
+        TestKit.check("section() on an unused prefix does not throw", !threwOnSectionCreation);
+        TestKit.check("an empty section reports no keys", missing.keys().isEmpty());
+        TestKit.check("an empty section's asMap() is empty", missing.asMap().isEmpty());
+        TestKit.check("an empty section reports has() false for any key", !missing.has("ANYTHING"));
+
+        try {
+            missing.getString("ANYTHING");
+            TestKit.check("getString on a missing key within an empty section throws ConfigException, matching EnvConfig's own missing-key behavior", false);
+        } catch (ConfigException e) {
+            TestKit.check("getString on a missing key within an empty section throws ConfigException, matching EnvConfig's own missing-key behavior", true);
+        }
+
+        TestKit.check("getString(key, default) on an empty section returns the default, matching EnvConfig's own behavior",
+                "fallback".equals(missing.getString("ANYTHING", "fallback")));
     }
 
     private static void testMalformedLineThrows() throws IOException {

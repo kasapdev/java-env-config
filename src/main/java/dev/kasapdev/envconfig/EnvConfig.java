@@ -33,6 +33,9 @@ import java.util.TreeSet;
  */
 public final class EnvConfig {
 
+    /** Separator inserted between a section prefix and the keys within it. */
+    static final String SECTION_SEPARATOR = "_";
+
     private final Map<String, String> values;
 
     private EnvConfig(Map<String, String> values) {
@@ -253,5 +256,29 @@ public final class EnvConfig {
     /** Returns the set of keys present in this configuration. */
     public Set<String> keys() {
         return values.keySet();
+    }
+
+    /**
+     * Returns a view of this configuration scoped to keys beginning with
+     * {@code prefix + "_"}. The returned {@link EnvConfigSection} exposes the
+     * same typed accessors as {@link EnvConfig} ({@code getString}, {@code getInt},
+     * {@code getBoolean}, {@code has}, {@code keys}, {@code asMap}), resolving each
+     * requested key by prepending the prefix and separator and delegating to this
+     * configuration's own lookup and type-conversion logic.
+     *
+     * <p>For example, given the keys {@code DATABASE_HOST} and {@code DATABASE_PORT},
+     * {@code section("DATABASE")} exposes {@code getString("HOST")} and
+     * {@code getInt("PORT")}.
+     *
+     * <p>A prefix that matches no keys is not an error: it simply yields a section
+     * with no keys. Requesting a specific key from such a section behaves exactly as
+     * requesting a missing key from this configuration does (e.g. {@code getString}
+     * throws {@link ConfigException}, while the {@code (key, defaultValue)} overloads
+     * return the default).
+     *
+     * @param prefix the section prefix, without the trailing separator (e.g. {@code "DATABASE"})
+     */
+    public EnvConfigSection section(String prefix) {
+        return new EnvConfigSection(this, prefix + SECTION_SEPARATOR);
     }
 }
